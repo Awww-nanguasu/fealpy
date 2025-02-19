@@ -55,24 +55,25 @@ def cg(A: SupportsMatmul, b: TensorLike, x0: Optional[TensorLike]=None, M: Optio
         if x0.shape != b.shape:
             raise ValueError("x0 and b must have the same shape")
     
-    if M is not None  and M.shape != A.shape:
-        raise ValueError("A and M must have the same shape")
+    # if M is not None  and M.shape != A.shape:
+    #     raise ValueError("A and M must have the same shape")
 
 
     if (not single_vector) and batch_first:
         b = bm.swapaxes(b, 0, 1)
         x0 = bm.swapaxes(x0, 0, 1)
 
-    sol = _cg_impl(A, b, x0,M,atol, rtol, maxit)
+    sol,info = _cg_impl(A, b, x0,M,atol, rtol, maxit)
 
     if (not single_vector) and batch_first:
         sol = bm.swapaxes(sol, 0, 1)
 
-    return sol
+    return sol,info
 
 
 def _cg_impl(A: SupportsMatmul, b: TensorLike, x0: TensorLike, M: SupportsMatmul, atol, rtol, maxit):
     # initialize
+    info = {}
     x = x0              # (dof, batch)
     r = b - A @ x       # (dof, batch)
     z = M @ r if M is not None else r
@@ -95,6 +96,8 @@ def _cg_impl(A: SupportsMatmul, b: TensorLike, x0: TensorLike, M: SupportsMatmul
 
         n_iter += 1
 
+        info['residual'] = r_norm_new
+        info['niter'] = n_iter
         if r_norm_new < atol:
             logger.info(f"CG: converged in {n_iter} iterations, "
                         "stopped by absolute tolerance.")
@@ -113,7 +116,7 @@ def _cg_impl(A: SupportsMatmul, b: TensorLike, x0: TensorLike, M: SupportsMatmul
         p = z_new + beta[None, ...] * p
         r, z, rTr = r_new, z_new, rTr_new
 
-    return x
+    return x,info
 
     # @staticmethod
     # def setup_context(ctx, inputs, output):

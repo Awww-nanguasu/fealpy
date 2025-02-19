@@ -2,7 +2,6 @@
 from ..backend import backend_manager as bm
 from ..sparse import COOTensor, CSRTensor
 import numpy as np
-
 def _mumps_solve(A, b):
     """Solve a linear system using MUMPS.
 
@@ -64,18 +63,19 @@ def _to_cupy_data(A, b):
         Tuple: The converted tensors.
     """
     import cupy as cp
-    if isinstance(A.indices(), np.ndarray): # numpy backend
+    if isinstance(A.indices, np.ndarray): # numpy backend
         A =  A.to_scipy() 
         A = cp.sparse.csr_matrix(A.astype(cp.float64))
-    elif A.indices().device.type == "cpu": # torch backend
+    elif A.indices.device.type == "cpu": # torch backend
         A = A.device_put("cuda")
-        indices = cp.from_dlpack(A.indices())
-        data = cp.from_dlpack(A.values())
+        indices = cp.from_dlpack(A.indices)
+        data = cp.from_dlpack(A.values)
         A = cp.sparse.csr_matrix((data, (indices[0], indices[1])), shape=A.shape)
     else:
-        indices = cp.from_dlpack(A.indices())
-        data = cp.from_dlpack(A.values())
-        A = cp.sparse.csr_matrix((data, (indices[0], indices[1])), shape=A.shape)
+        crow = cp.from_dlpack(A.row)
+        col = cp.from_dlpack(A.col)
+        data = cp.from_dlpack(A.values)
+        A = cp.sparse.csr_matrix((data, (crow, col)), shape=A.shape)
 
     if isinstance(b, np.ndarray) or b.device.type == "cpu":
         b = bm.to_numpy(b)
@@ -140,7 +140,7 @@ def _cupy_spsolve_triangular(A, b, lower=True):
 
     iscpu = isinstance(b, np.ndarray) or b.device.type == "cpu"
     A, b = _to_cupy_data(A, b)
-    x = spsol(A, b, lower=lower)
+    x = spsol_tri(A, b, lower=lower)
     if iscpu:
         x = cp.asnumpy(x)
     return x
@@ -173,11 +173,13 @@ def spsolve_triangular(A:[COOTensor, CSRTensor], b, lower=True):
         A(COOTensor | CSRTensor): The upper or lower triangular matrix of the linear system.
         b(Tensor): The right-hand side.
     """
+    import cupy as cp
     device = bm.device_type(b)
     if device == 'cpu':
         x = _mumps_spsolve_triangular(A, b, lower=lower)
-    elif device == 'gpu':
+    elif device == 'cuda':
         x = _cupy_spsolve_triangular(A, b, lower=lower)
+        x = cp.asnumpy(x)
     else:
         raise ValueError(f"Unsupport device: {device}")
 
